@@ -23,12 +23,6 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/internal/verify"
 )
 
-const (
-	clusterScalingConfiguration_DefaultMinCapacity = 1
-	clusterScalingConfiguration_DefaultMaxCapacity = 16
-	clusterTimeoutDelete                           = 2 * time.Minute
-)
-
 func ResourceCluster() *schema.Resource {
 	return &schema.Resource{
 		CreateWithoutTimeout: resourceClusterCreate,
