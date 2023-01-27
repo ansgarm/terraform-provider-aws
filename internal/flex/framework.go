@@ -52,7 +52,24 @@ func ExpandFrameworkStringSet(ctx context.Context, set types.Set) []*string {
 	return vs
 }
 
-func ExpandFrameworkStringValueSet(ctx context.Context, set types.Set) []string {
+type Set []string
+
+func (s Set) Difference(ns Set) Set {
+	m := make(map[string]struct{})
+	for _, v := range ns {
+		m[v] = struct{}{}
+	}
+
+	var result []string
+	for _, v := range s {
+		if _, ok := m[v]; !ok {
+			result = append(result, v)
+		}
+	}
+	return result
+}
+
+func ExpandFrameworkStringValueSet(ctx context.Context, set types.Set) Set {
 	if set.IsNull() || set.IsUnknown() {
 		return nil
 	}
