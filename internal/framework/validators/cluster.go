@@ -113,27 +113,27 @@ func (e evaluate) match(value string) error {
 var (
 	firstCharacterIsLetter = evaluate{
 		regex:   regexp.MustCompile(`^[a-z]`).MatchString,
-		message: "first character of %s must be a letter",
+		message: "first character of %q must be a letter",
 		isMatch: false,
 	}
 	onlyAlphanumeric = evaluate{
 		regex:   regexp.MustCompile(`^[0-9A-Za-z-]+$`).MatchString,
-		message: "only alphanumeric characters and hyphens allowed in %s",
+		message: "only alphanumeric characters and hyphens allowed in %q",
 		isMatch: false,
 	}
 	onlyLowercaseAlphanumeric = evaluate{
 		regex:   regexp.MustCompile(`^[0-9a-z-]+$`).MatchString,
-		message: "only lowercase alphanumeric characters and hyphens allowed in %s",
+		message: "only lowercase alphanumeric characters and hyphens allowed in %q",
 		isMatch: false,
 	}
 	noConsecutiveHyphens = evaluate{
 		regex:   regexp.MustCompile(`--`).MatchString,
-		message: "%s cannot contain two consecutive hyphens",
+		message: "%q cannot contain two consecutive hyphens",
 		isMatch: true,
 	}
 	cannotEndWithHyphen = evaluate{
 		regex:   regexp.MustCompile(`-$`).MatchString,
-		message: "%s cannot end with a hyphen",
+		message: "%q cannot end with a hyphen",
 		isMatch: true,
 	}
 )
