@@ -163,7 +163,7 @@ func TestExpandFrameworkStringValueSet(t *testing.T) {
 
 	type testCase struct {
 		input    types.Set
-		expected []string
+		expected Set
 	}
 	tests := map[string]testCase{
 		"null": {
