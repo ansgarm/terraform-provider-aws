@@ -6,11 +6,13 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/aws/aws-sdk-go/aws/endpoints"
+	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/lambda"
 	"github.com/hashicorp/aws-sdk-go-base/v2/awsv1shim/v2/tfawserr"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
@@ -21,6 +23,7 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
 	"github.com/hashicorp/terraform-provider-aws/internal/flex"
+	tfec2 "github.com/hashicorp/terraform-provider-aws/internal/service/ec2"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 	"github.com/hashicorp/terraform-provider-aws/internal/verify"
@@ -233,6 +236,11 @@ func ResourceFunction() *schema.Resource {
 			"qualified_invoke_arn": {
 				Type:     schema.TypeString,
 				Computed: true,
+			},
+			"remove_vpc_config_on_destroy": {
+				Type:     schema.TypeBool,
+				Optional: true,
+				Default:  false,
 			},
 			"reserved_concurrent_executions": {
 				Type:         schema.TypeInt,
@@ -968,6 +976,13 @@ func resourceFunctionDelete(ctx context.Context, d *schema.ResourceData, meta in
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).LambdaConn()
 
+	if v, ok := d.GetOk("remove_vpc_config_on_destroy"); ok && v.(bool) {
+		log.Printf("[INFO] Removing Lambda Function VPC config: %s", d.Id())
+		if err := removeVPCConfig(ctx, d, meta); err != nil {
+			return sdkdiag.AppendFromErr(diags, err)
+		}
+	}
+
 	log.Printf("[INFO] Deleting Lambda Function: %s", d.Id())
 	_, err := conn.DeleteFunctionWithContext(ctx, &lambda.DeleteFunctionInput{
 		FunctionName: aws.String(d.Id()),
@@ -1044,6 +1059,45 @@ func findLatestFunctionVersionByName(ctx context.Context, conn *lambda.Lambda, n
 	return output, nil
 }
 
+// removeVPCConfig removes the existing VPC configuration and waits for the orphaned
+// ENI's to be cleaned up
+func removeVPCConfig(ctx context.Context, d *schema.ResourceData, meta interface{}) error {
+	conn := meta.(*conns.AWSClient).LambdaConn()
+	ec2Conn := meta.(*conns.AWSClient).EC2Conn()
+
+	_, err := retryFunctionOp(ctx, func() (interface{}, error) {
+		return conn.UpdateFunctionConfigurationWithContext(ctx, &lambda.UpdateFunctionConfigurationInput{
+			FunctionName: aws.String(d.Id()),
+			VpcConfig: &lambda.VpcConfig{
+				SecurityGroupIds: []*string{},
+				SubnetIds:        []*string{},
+			},
+		})
+	})
+	if tfawserr.ErrCodeEquals(err, lambda.ErrCodeResourceNotFoundException) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("updating Lambda Function (%s) configuration: %s", d.Id(), err)
+	}
+
+	if _, err := waitFunctionUpdated(ctx, conn, d.Id(), d.Timeout(schema.TimeoutUpdate)); err != nil {
+		return fmt.Errorf("waiting for Lambda Function (%s) configuration update: %s", d.Id(), err)
+	}
+
+	var sgFilterValue string
+	if v, ok := d.GetOk("vpc_config"); ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
+		tfMap := v.([]interface{})[0].(map[string]interface{})
+		sgIDs := flex.ExpandStringValueSet(tfMap["security_group_ids"].(*schema.Set))
+		sgFilterValue = strings.Join(sgIDs, ",")
+	}
+	if err := waitForLambdaNetworkInterfaceCleanup(ctx, ec2Conn, d.Id(), sgFilterValue); err != nil {
+		return fmt.Errorf("waiting for Lambda Function (%s) ENI cleanup: %s", d.Id(), err)
+	}
+
+	return nil
+}
+
 func statusFunctionLastUpdateStatus(ctx context.Context, conn *lambda.Lambda, name string) resource.StateRefreshFunc {
 	return func() (interface{}, string, error) {
 		output, err := FindFunctionByName(ctx, conn, name)
@@ -1114,6 +1168,22 @@ func waitFunctionUpdated(ctx context.Context, conn *lambda.Lambda, functionName 
 	}
 
 	return nil, err
+}
+
+func waitForLambdaNetworkInterfaceCleanup(ctx context.Context, conn *ec2.EC2, functionName, securtyGroupIDs string) error {
+	const (
+		// TODO: should a delete timeout be added and used here instead?
+		functionNetworkInterfaceCleanupTimeout = 10 * time.Minute
+	)
+	description := fmt.Sprintf("AWS Lambda VPC ENI-%s-*", functionName)
+
+	_, err := tfresource.RetryUntilEmptyResult(ctx, functionNetworkInterfaceCleanupTimeout,
+		func() (interface{}, error) {
+			return tfec2.FindLambdaNetworkInterfacesBySecurityGroupIDsAndDescription(ctx, conn, securtyGroupIDs, description)
+		},
+	)
+
+	return err
 }
 
 // retryFunctionOp retries a Lambda Function Create or Update operation.

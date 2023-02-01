@@ -112,6 +112,23 @@ func RetryWhenNewResourceNotFound(ctx context.Context, timeout time.Duration, f 
 	})
 }
 
+var errNonEmptyResult = errors.New(`non-empty result`)
+
+// RetryUntilEmptyResult retries the specified function until it returns a resource.EmptyResult.
+func RetryUntilEmptyResult(ctx context.Context, timeout time.Duration, f func() (interface{}, error)) (interface{}, error) {
+	return RetryWhen(ctx, timeout, f, func(err error) (bool, error) {
+		if EmptyResult(err) {
+			return false, nil
+		}
+
+		if err != nil {
+			return false, err
+		}
+
+		return true, errNonEmptyResult
+	})
+}
+
 type Options struct {
 	Delay                     time.Duration // Wait this time before starting checks
 	MinPollInterval           time.Duration // Smallest time to wait before refreshes (MinTimeout in resource.StateChangeConf)

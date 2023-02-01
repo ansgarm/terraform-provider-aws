@@ -6,6 +6,14 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 )
 
+// EmptyResult returns true if the error represents an "empty result" condition.
+// Specifically, EmptyResult returns true if the error or a wrapped error is of type
+// resource.EmptyResult.
+func EmptyResult(err error) bool {
+	var e *EmptyResultError
+	return errors.As(err, &e)
+}
+
 // NotFound returns true if the error represents a "resource not found" condition.
 // Specifically, NotFound returns true if the error or a wrapped error is of type
 // resource.NotFoundError.

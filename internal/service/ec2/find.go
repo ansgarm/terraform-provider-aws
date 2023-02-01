@@ -1572,6 +1572,26 @@ func FindNetworkInterfaceByID(ctx context.Context, conn *ec2.EC2, id string) (*e
 	return output, nil
 }
 
+func FindLambdaNetworkInterfacesBySecurityGroupIDsAndDescription(ctx context.Context, conn *ec2.EC2, securtyGroupIDs, description string) ([]*ec2.NetworkInterface, error) {
+	input := &ec2.DescribeNetworkInterfacesInput{
+		Filters: BuildAttributeFilterList(map[string]string{
+			"interface-type": ec2.NetworkInterfaceTypeLambda,
+			"group-id":       securtyGroupIDs,
+			"description":    description,
+		}),
+	}
+
+	output, err := FindNetworkInterfaces(ctx, conn, input)
+	if err != nil {
+		return nil, err
+	}
+	if len(output) == 0 || output[0] == nil {
+		return nil, tfresource.NewEmptyResultError(input)
+	}
+
+	return output, nil
+}
+
 func FindNetworkInterfacesByAttachmentInstanceOwnerIDAndDescription(ctx context.Context, conn *ec2.EC2, attachmentInstanceOwnerID, description string) ([]*ec2.NetworkInterface, error) {
 	input := &ec2.DescribeNetworkInterfacesInput{
 		Filters: BuildAttributeFilterList(map[string]string{
